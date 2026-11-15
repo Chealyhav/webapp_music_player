@@ -1,0 +1,281 @@
+SAMNIENG MUSIC - TECHNICAL SPECIFICATION
+========================================
+
+Document purpose
+----------------
+This document records the features, structure, data flows, and current
+implementation status of the Flutter application in this folder. It
+describes the code as it exists, not a future product roadmap.
+
+1. Product summary
+------------------
+Samnieng Music is a Flutter music-player application with a dark interface.
+It combines YouTube search and streaming with a locally stored music library,
+playlists, favorites, recent history, and downloaded tracks. Flutter Riverpod
+provides application state, just_audio handles native audio playback, and a
+YouTube iframe player is used for web playback.
+
+Supported platform-specific behavior:
+- Android and iOS initialize just_audio_background for background playback
+  and media notifications.
+- Web uses youtube_player_iframe for playback.
+- Downloaded bytes are saved to application documents on non-web platforms;
+  web uses a browser download helper.
+- Android, iOS, Windows, macOS, and Linux project scaffolding is present.
+  Feature completeness and runtime behavior on every desktop platform have
+  not been established by the current source.
+
+2. Main user flows and screens
+------------------------------
+Startup and entry:
+- main() initializes Flutter, optionally loads .env, initializes background
+  audio on Android/iOS, restores the last song preference, and starts the app
+  inside ProviderScope.
+- SamniengApp applies the shared dark theme and opens LoadingScreen.
+- LoadingScreen currently waits two seconds and navigates to LoginScreen.
+- LoginScreen currently has email/password inputs, password visibility toggle,
+  and Google/sign-up/forgot-password affordances. Login itself simply replaces
+  the screen with MainAppScaffold; there is no authentication implementation.
+
+Main navigation:
+- MainAppScaffold hosts Home, Search, Playlist, Local Music, Favorites, and
+  Settings screens in an IndexedStack.
+- A persistent MiniPlayer appears above the bottom navigation bar.
+- Note: the six screen widgets are ordered Home, Search, Playlist, Music
+  Library, Favorites, Settings, while the labels/icons currently place
+  "Library" at index 2 and "Local" at index 3. Verify and align these names
+  before a navigation redesign.
+
+Home:
+- Shows a greeting selected by local time (morning, afternoon, evening).
+- Shows a search-looking input, app header, and banner.
+- Requests YouTube results for "Top Trending Music 2024" and
+  "Popular Khmer Music", and requests local songs for the recently-played
+  section.
+- Song taps call startPlayback with the result list as the playback queue.
+- The header search field is currently presentation-only and does not update
+  SearchScreen state. Notification and menu controls are also placeholders.
+- Home state restores a recent-song list and caps new history entries at 50.
+
+Search:
+- SearchScreen updates searchQueryProvider as the user types.
+- searchResultsProvider returns no results for an empty query and otherwise
+  queries YoutubeRepository.
+- Results show SongCard rows and begin playback using the complete results as
+  queue.
+- Empty results show a discover section with hard-coded sample titles.
+- All/Songs/Artists/Albums/YouTube chips are displayed, but only local selected
+  chip styling exists; the chips do not currently filter result types.
+- Search errors are rendered as text.
+
+Playlists:
+- PlaylistScreen lists saved playlists and offers creation, opening, and
+  deletion.
+- PlaylistDetailScreen shows playlist artwork/name/count/duration and offers
+  Play All, Shuffle, and per-song playback.
+- The playlist options/add-to-playlist UI supports playlist actions.
+- Playlist state is persisted through LibraryStore using SharedPreferences.
+- Playlist IDs are generated from the current millisecond timestamp; duplicate
+  names are allowed.
+
+Local music library:
+- MusicLibraryScreen displays Downloaded, Favorites, and Recently Played tabs
+  and a storage-usage display.
+- Current implementation supplies local mock songs to all three tabs rather
+  than binding each tab to its corresponding downloaded/favorites/recent state.
+- The storage amount and progress are currently hard-coded display values.
+- MusicLocalDatasource currently returns three seed songs for the UI.
+
+Favorites:
+- FavoritesScreen lists saved songs, displays a count, supports shuffle and
+  playback, and removes items with a swipe.
+- FavoritesNotifier loads and saves favorites through LibraryStore.
+- Favorite state is toggled by song ID.
+
+Player:
+- MusicPlayerScreen provides expanded playback UI, seeks, favorite/download
+  actions, and YouTube iframe playback on web.
+- MiniPlayer provides persistent compact playback controls and opens the full
+  player.
+- PlayerControls presents playback controls.
+- Queue state is stored in playbackQueueProvider and queueIndexProvider.
+- Shuffle/repeat flags are in shuffleEnabledProvider and repeatEnabledProvider.
+- isPlayingProvider, positionProvider, and durationProvider expose player
+  streams; autoAdvanceProvider advances when processing reaches completed.
+- startPlayback updates current song, queue/index, recent history, saved last
+  song, then starts AudioPlayerService.
+- playQueueOffset handles next/previous, shuffle selection, and repeat
+  boundary behavior.
+- AudioPlayerService resolves a YouTube audio stream when needed, sets the
+  source, and controls just_audio.
+
+Downloads:
+- DownloadService resolves a YouTube video ID, selects an audio-only stream,
+  collects stream bytes, saves the file, marks the Song offline, and stores
+  downloaded metadata.
+- On web, bytes are sent to the browser download helper. On native platforms,
+  files go under the application documents downloads directory.
+- Download failures for missing IDs or streams are surfaced as exceptions.
+- The app should verify platform/store policy and applicable content rights
+  before distributing or enabling arbitrary media downloads.
+
+Settings:
+- SettingsScreen currently displays a non-interactive Dark Mode switch and a
+  hard-coded version label. settings_state.dart contains a darkModeProvider,
+  but the screen does not connect it to theme switching or persistence.
+
+3. State, data, and service responsibilities
+---------------------------------------------
+State management:
+- Riverpod providers in feature state files own screen state and dependencies.
+- music_state.dart creates shared YouTube datasource, MusicRepository, and
+  AudioPlayerService providers, plus playback state and stream providers.
+- home_state.dart owns greeting and recent-play history state.
+- search_state.dart owns the query and asynchronous YouTube results.
+- playlist_state.dart owns playlist CRUD and persistence.
+- favorites_state.dart owns favorite loading and toggling.
+- library_state.dart exposes downloaded-song loading and refresh state.
+- settings_state.dart currently defines a dark-mode boolean only.
+
+Data models:
+- Song stores ID, title, artist, optional album/artwork, audio URL, duration,
+  offline/favorite flags, and JSON conversion/copyWith helpers.
+- Playlist stores playlist identity, name, songs, and optional cover metadata.
+- Album, Artist, and User model files exist; their integration into current
+  user flows is limited or not evident from the screens.
+
+Persistence and data access:
+- LibraryStore uses SharedPreferences JSON for favorites, playlists, recently
+  played songs, and download metadata.
+- PreferencesService stores/restores the last played song.
+- DownloadedSongDatabase stores downloaded Song rows in SQLite.
+- DatabaseHelper provides SQLite database access for songs and playlists.
+- MusicLocalDatasource and PlaylistLocalDatasource wrap local data access.
+- YoutubeDatasource provides search, video/channel details, playlist listing
+  and items, audio stream URL resolution, and duration hydration.
+- YoutubeRepository and MusicRepository wrap remote/local datasource methods.
+- ApiDatasource, ApiClient, and storage helper classes provide additional
+  infrastructure; their use in primary screens is limited or not evident.
+
+4. Key functional APIs
+----------------------
+Application:
+- main(): initialize app services and restore last song before runApp().
+- SamniengApp.build(): configure MaterialApp and theme.
+- MainAppScaffold.build(): render the indexed screens, mini player, and nav.
+
+Playback:
+- startPlayback(ref, song, queue): set queue/current song, update recent/last
+  song, and start audio playback.
+- playQueueOffset(ref, delta): move through queue with shuffle/repeat handling.
+- AudioPlayerService.playSong(song): resolve/load/play the selected track.
+- AudioPlayerService.pause(), resume(), stop(), seek(), dispose().
+- MusicPlayerScreen._togglePlayback(): route controls to iframe on web or
+  AudioPlayerService on other platforms.
+
+Library:
+- RecentlyPlayedNotifier.addSong(song): move track to the front, deduplicate,
+  cap history at 50, and persist.
+- FavoritesNotifier.isFavorite(id), toggleFavorite(song): inspect/update and
+  persist favorite state.
+- PlaylistsNotifier.createPlaylist(name), addSong(playlistId, song),
+  removeSong(playlistId, songId), deletePlaylist(playlistId): mutate and save.
+- DownloadService.downloadSong(song): download and store a track.
+- LibraryStore load/save methods: read/write JSON collections.
+
+Search and discovery:
+- searchResultsProvider: return an empty list for blank query, otherwise run
+  YouTube search.
+- MusicRepository methods: fetchLocalSongs, searchSongs, getVideoDetails,
+  getPlaylists, getPlaylistItems, getChannelDetails, getAudioStreamUrl.
+- YoutubeDatasource implements the YouTube-facing operations.
+
+Utilities:
+- FormatUtils formats durations and numbers.
+- AppDateUtils formats dates.
+- PermissionUtils requests storage permission.
+- Shared core widgets include AppButton, AppLogo, AppLoading, AppError, and
+  EmptyState.
+
+5. Architecture and project layout
+-----------------------------------
+lib/main.dart                         application initialization
+lib/app.dart                          MaterialApp and main navigation shell
+lib/core/constants/                   app colors and global constants
+lib/core/theme/                       shared theme definition
+lib/core/utils/                       formatting and permission helpers
+lib/core/widgets/                     reusable UI components
+lib/features/<feature>/screens/       feature screens
+lib/features/<feature>/state/         Riverpod state/providers
+lib/features/<feature>/widgets/       reusable feature widgets
+lib/data/models/                      domain/data models
+lib/data/datasources/local/           local data access
+lib/data/datasources/remote/          remote/YouTube data access
+lib/data/repositories/                datasource coordination
+lib/services/audio/                   playback and audio handler
+lib/services/download/                cross-platform download logic
+lib/services/storage/                 preferences, library, SQLite helpers
+test/widget_test.dart                 seed-data and app smoke tests
+
+6. Dependencies
+---------------
+- flutter, flutter_riverpod: UI framework and state management
+- just_audio, audio_service, just_audio_background: audio and background
+  playback integration
+- youtube_explode_dart, youtube_player_iframe: YouTube metadata/audio streams
+  and web playback
+- http: HTTP client support
+- sqflite, path_provider, path: database and filesystem support
+- shared_preferences: lightweight persisted state
+- google_fonts: Inter typography
+- cached_network_image: cached remote artwork
+- flutter_dotenv: optional environment configuration
+
+7. Visual system
+----------------
+The application uses a dark-only Material 3 theme and Inter text.
+
+Current palette:
+- App background: #0B032D (requested midnight purple)
+- Main surface: #150B3E
+- Elevated surface: #21134F
+- Surface variant/input: #2D1E5C
+- Primary violet: #8058D5
+- Soft violet gradient highlight: #9A7AF0
+- Secondary aqua: #5BDAC6
+- Accent coral: #FF7898
+- Main text: #FFFFFF
+- Secondary text: #CDC5E3
+- Muted text: #9B91B8
+- Error: #FF6B7F
+- Warning: #FFC66D
+- Success: #5BDAC6
+
+Design guidance:
+- Reserve the deepest purple for full-screen backgrounds; use the two lighter
+  surfaces to establish card and control hierarchy.
+- Use violet for primary actions and selected navigation/filter states.
+- Use aqua sparingly for secondary emphasis and positive states; use coral
+  for favorites or destructive/error-related emphasis, not both at once.
+- Keep large text white and supporting text light lavender; do not use muted
+  text for small essential controls.
+- Keep gradients subtle and limited to banners, artwork fallbacks, and primary
+  actions to preserve a clean, calm interface.
+
+8. Known gaps and recommended follow-up
+---------------------------------------
+- Implement real authentication or rename/remove the login form; currently
+  every login proceeds without validation.
+- Connect the Home search field to SearchScreen and remove or wire inert
+  notification/menu/back/See All actions.
+- Make search filter chips functional or present them as non-interactive labels.
+- Bind library tabs to actual downloads, favorites, and recent state; replace
+  the hard-coded storage usage with measured values or clearly remove it.
+- Connect settings controls to persisted theme preferences, or remove the
+  non-interactive switch while the app is dark-only.
+- Add visible download progress/error feedback and verify downloaded files
+  play from their local paths.
+- Review provider lifetimes/disposal and persistence load errors as behavior
+  becomes more complete.
+- Add focused tests for queue edges, repeat/shuffle, persistence, search, and
+  downloads in addition to the current smoke/seed-data tests.
